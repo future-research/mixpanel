@@ -58,6 +58,7 @@ type mixpanel struct {
 	ApiURL                 string
 	ServiceAccountUsername string
 	ServiceAccountPassword string
+	ProjectSecret          string
 }
 
 // A mixpanel event
@@ -231,7 +232,12 @@ func (m *mixpanel) sendWithServiceAccount(eventType string, params interface{}, 
 	if err != nil {
 		return wrapErr(url, err)
 	}
-	req.SetBasicAuth(m.ServiceAccountUsername, m.ServiceAccountPassword)
+
+	if m.ProjectSecret != "" {
+		req.SetBasicAuth(m.ProjectSecret, "")
+	} else {
+		req.SetBasicAuth(m.ServiceAccountUsername, m.ServiceAccountPassword)
+	}
 
 	resp, err := m.Client.Do(req)
 
@@ -275,7 +281,7 @@ func NewFromClient(c *http.Client, token, apiURL string) Mixpanel {
 }
 
 // Creates a client instance with Service Account credentials. This sends requests with a Basic Auth header with the credentials.
-func NewWithServiceAccount(c *http.Client, token string, apiURL string, username string, password string) Mixpanel {
+func NewWithServiceAccount(c *http.Client, token string, apiURL string, username string, password string, secret string) Mixpanel {
 	if apiURL == "" {
 		apiURL = "https://api.mixpanel.com"
 	}
@@ -286,5 +292,6 @@ func NewWithServiceAccount(c *http.Client, token string, apiURL string, username
 		ApiURL:                 apiURL,
 		ServiceAccountUsername: username,
 		ServiceAccountPassword: password,
+		ProjectSecret:          secret,
 	}
 }

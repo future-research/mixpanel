@@ -3,6 +3,7 @@ package mixpanel
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -33,6 +34,10 @@ func (err *ErrTrackFailed) Error() string {
 	return fmt.Sprintf("Mixpanel did not return 1 when tracking: %s", err.Body)
 }
 
+func wrapErr(url string, err error) error {
+	return &MixpanelError{URL: url, Err: err}
+}
+
 // The Mixapanel struct store the mixpanel endpoint and the project token
 type Mixpanel interface {
 	// Create a mixpanel event
@@ -48,9 +53,11 @@ type Mixpanel interface {
 
 // The Mixapanel struct store the mixpanel endpoint and the project token
 type mixpanel struct {
-	Client *http.Client
-	Token  string
-	ApiURL string
+	Client                 *http.Client
+	Token                  string
+	ApiURL                 string
+	ServiceAccountUsername string
+	ServiceAccountPassword string
 }
 
 // A mixpanel event
@@ -111,7 +118,7 @@ func (m *mixpanel) MergeIdentities(distinctId, newId string) error {
 		"properties": props,
 	}
 
-	return m.send("import", params, false)
+	return m.sendWithServiceAccount("import", params, false)
 }
 
 // Track create a events to current distinct id
@@ -182,14 +189,10 @@ func (m *mixpanel) send(eventType string, params interface{}, autoGeolocate bool
 		url += "&ip=1"
 	}
 
-	wrapErr := func(err error) error {
-		return &MixpanelError{URL: url, Err: err}
-	}
-
 	resp, err := m.Client.Get(url)
 
 	if err != nil {
-		return wrapErr(err)
+		return wrapErr(url, err)
 	}
 
 	defer resp.Body.Close()
@@ -197,11 +200,55 @@ func (m *mixpanel) send(eventType string, params interface{}, autoGeolocate bool
 	body, bodyErr := ioutil.ReadAll(resp.Body)
 
 	if bodyErr != nil {
-		return wrapErr(bodyErr)
+		return wrapErr(url, bodyErr)
 	}
 
 	if strBody := string(body); strBody != "1" && strBody != "1\n" {
-		return wrapErr(&ErrTrackFailed{Body: strBody, Resp: resp})
+		return wrapErr(url, &ErrTrackFailed{Body: strBody, Resp: resp})
+	}
+
+	return nil
+}
+
+func (m *mixpanel) sendWithServiceAccount(eventType string, params interface{}, autoGeolocate bool) error {
+	if m.ServiceAccountUsername == "" || m.ServiceAccountPassword == "" {
+		return wrapErr("", errors.New("Missing Service Account credentials"))
+	}
+
+	data, err := json.Marshal(params)
+
+	if err != nil {
+		return err
+	}
+
+	url := m.ApiURL + "/" + eventType + "?data=" + m.to64(data)
+
+	if autoGeolocate {
+		url += "&ip=1"
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return wrapErr(url, err)
+	}
+	req.SetBasicAuth(m.ServiceAccountUsername, m.ServiceAccountPassword)
+
+	resp, err := m.Client.Do(req)
+
+	if err != nil {
+		return wrapErr(url, err)
+	}
+
+	defer resp.Body.Close()
+
+	body, bodyErr := ioutil.ReadAll(resp.Body)
+
+	if bodyErr != nil {
+		return wrapErr(url, bodyErr)
+	}
+
+	if strBody := string(body); strBody != "1" && strBody != "1\n" {
+		return wrapErr(url, &ErrTrackFailed{Body: strBody, Resp: resp})
 	}
 
 	return nil
@@ -224,5 +271,20 @@ func NewFromClient(c *http.Client, token, apiURL string) Mixpanel {
 		Client: c,
 		Token:  token,
 		ApiURL: apiURL,
+	}
+}
+
+// Creates a client instance with Service Account credentials. This sends requests with a Basic Auth header with the credentials.
+func NewWithServiceAccount(c *http.Client, token string, apiURL string, username string, password string) Mixpanel {
+	if apiURL == "" {
+		apiURL = "https://api.mixpanel.com"
+	}
+
+	return &mixpanel{
+		Client:                 c,
+		Token:                  token,
+		ApiURL:                 apiURL,
+		ServiceAccountUsername: username,
+		ServiceAccountPassword: password,
 	}
 }

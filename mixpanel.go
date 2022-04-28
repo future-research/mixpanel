@@ -110,8 +110,8 @@ func (m *mixpanel) Alias(distinctId, newId string) error {
 // Track create a events to current distinct id
 func (m *mixpanel) MergeIdentities(distinctId, newId string) error {
 	props := map[string]interface{}{
-		"token":        m.Token,
-		"distinct_ids": []string{distinctId, newId},
+		"token":         m.Token,
+		"$distinct_ids": []string{distinctId, newId},
 	}
 
 	params := map[string]interface{}{
@@ -228,7 +228,7 @@ func (m *mixpanel) sendWithServiceAccount(eventType string, params interface{}, 
 		url += "&ip=1"
 	}
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		return wrapErr(url, err)
 	}
